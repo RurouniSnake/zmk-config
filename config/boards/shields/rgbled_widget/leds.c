@@ -11,6 +11,7 @@
 #include <zmk/split/bluetooth/peripheral.h>
 #include <zmk/events/split_peripheral_status_changed.h>
 #include <zmk/events/battery_state_changed.h>
+#include <zmk/events/layer_state_changed.h>
 
 #include <zephyr/logging/log.h>
 
@@ -23,6 +24,8 @@ static const struct device *led_dev = DEVICE_DT_GET(LED_GPIO_NODE_ID);
 static const uint8_t rgb_idx[] = {DT_NODE_CHILD_IDX(DT_ALIAS(led_red)),
                                   DT_NODE_CHILD_IDX(DT_ALIAS(led_green)),
                                   DT_NODE_CHILD_IDX(DT_ALIAS(led_blue))};
+
+static uint8_t _zmk_keymap_layer_default = 0;
 
 // color values as specified by an RGB bitfield
 enum color_t {
@@ -68,6 +71,29 @@ static int led_profile_listener_cb(const zmk_event_t *eh) {
 // run led_profile_listener_cb on BLE profile change (on central)
 ZMK_LISTENER(led_profile_listener, led_profile_listener_cb);
 ZMK_SUBSCRIPTION(led_profile_listener, zmk_ble_active_profile_changed);
+
+#if IS_ENABLED(CONFIG_ZMK_LAYER_LED)
+static int led_layer_listener_cb(const zmk_event_t *eh) {
+    uint8_t layer = ((struct zmk_layer_state_changed *)eh)->layer;
+    bool state = ((struct zmk_layer_state_changed *)eh)->state;
+
+    struct blink_item blink = {.color = LED_MAGENTA};
+    if (layer != _zmk_keymap_layer_default && state) {
+        LOG_INF("Default layer not selected, blinking magenta");
+        blink.duration_ms = CONFIG_RGBLED_WIDGET_LAYER_BLINK_MS;
+        k_msgq_put(&led_msgq, &blink, K_NO_WAIT);
+    } else if (layer == _zmk_keymap_layer_default && state) {
+        LOG_INF("Default layer selected, turning off magenta");
+        blink.duration_ms = 1;
+        k_msgq_put(&led_msgq, &blink, K_NO_WAIT);
+    }
+}
+
+// run led_layer_listener_cb on layer change (on central)
+ZMK_LISTENER(led_layer_listener, led_layer_listener_cb);
+ZMK_SUBSCRIPTION(led_layer_listener, zmk_layer_state_changed);
+#endif // IS_ENABLED(CONFIG_ZMK_LAYER_LED)
+
 #else
 static int led_peripheral_listener_cb(const zmk_event_t *eh) {
     struct blink_item blink = {.duration_ms = CONFIG_RGBLED_WIDGET_OUTPUT_BLINK_MS};
